@@ -1,0 +1,7 @@
+.next/
+data/
+drizzle/
+AGENTS.md
+Plan.md
+question.md
+next-env.d.ts

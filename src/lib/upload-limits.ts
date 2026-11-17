@@ -1,0 +1,2 @@
+export const maxUploadBytes = 1024 * 1024;
+export const uploadSizeError = "Choose a file that is 1 MiB or smaller.";
