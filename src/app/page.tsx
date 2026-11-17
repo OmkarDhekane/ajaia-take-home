@@ -15,7 +15,7 @@ function DocumentList({
   emptyTitle,
   emptyMessage,
 }: {
-  documents: (ReturnType<typeof listDocuments>[number] & {
+  documents: (Awaited<ReturnType<typeof listDocuments>>[number] & {
     ownerName?: string;
   })[];
   emptyTitle: string;
@@ -68,6 +68,9 @@ export default async function DocumentsPage({
   const [user, { view }] = await Promise.all([requireUser(), searchParams]);
   const db = getDatabase();
   const showShared = view === "shared";
+  const documents = showShared
+    ? await listSharedDocuments(db, user.id)
+    : await listDocuments(db, user.id);
 
   return (
     <>
@@ -114,13 +117,13 @@ export default async function DocumentsPage({
           >
             {showShared ? (
               <DocumentList
-                documents={listSharedDocuments(db, user.id)}
+                documents={documents}
                 emptyTitle="No shared documents yet"
                 emptyMessage="Documents others share with you will appear here."
               />
             ) : (
               <DocumentList
-                documents={listDocuments(db, user.id)}
+                documents={documents}
                 emptyTitle="No documents yet"
                 emptyMessage="Create a blank document or import a text file."
               />

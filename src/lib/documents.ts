@@ -1,7 +1,7 @@
 import { getSchema } from "@tiptap/core";
 import { and, desc, eq, isNotNull, ne, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { openDatabase } from "./db";
+import type { Database } from "./db";
 import { documents, documentShares, users } from "./db/schema";
 import {
   editorExtensions,
@@ -12,9 +12,8 @@ import {
 const schema = getSchema(editorExtensions);
 export const maxDocumentBytes = 2 * 1024 * 1024;
 export const documentSizeError = "The document exceeds the 2 MiB size limit.";
-type Database = ReturnType<typeof openDatabase>;
 
-export function listDocuments(db: Database, ownerId: string) {
+export async function listDocuments(db: Database, ownerId: string) {
   return db
     .select({
       id: documents.id,
@@ -31,7 +30,7 @@ function ownedDocument(id: string, ownerId: string) {
   return and(eq(documents.id, id), eq(documents.ownerId, ownerId));
 }
 
-export function findDocument(db: Database, id: string, userId: string) {
+export async function findDocument(db: Database, id: string, userId: string) {
   return db
     .select({
       id: documents.id,
@@ -61,7 +60,7 @@ export function findDocument(db: Database, id: string, userId: string) {
     .get();
 }
 
-export function listSharedDocuments(db: Database, recipientId: string) {
+export async function listSharedDocuments(db: Database, recipientId: string) {
   return db
     .select({
       id: documents.id,
@@ -77,7 +76,7 @@ export function listSharedDocuments(db: Database, recipientId: string) {
     .all();
 }
 
-export function listSharingPeople(
+export async function listSharingPeople(
   db: Database,
   documentId: string,
   ownerId: string,
@@ -104,28 +103,29 @@ export function listSharingPeople(
     .all();
 }
 
-export function grantDocumentAccess(
+export async function grantDocumentAccess(
   db: Database,
   documentId: string,
   ownerId: string,
   recipientId: string,
-): { success: true } | { error: string } {
-  return db.transaction((tx) => {
-    const document = tx
+): Promise<{ success: true } | { error: string }> {
+  return db.transaction(async (tx) => {
+    const document = await tx
       .select({ id: documents.id })
       .from(documents)
       .where(ownedDocument(documentId, ownerId))
       .get();
     if (!document) return { error: "Document not found." };
 
-    const recipient = tx
+    const recipient = await tx
       .select({ id: users.id })
       .from(users)
       .where(and(eq(users.id, recipientId), ne(users.id, ownerId)))
       .get();
     if (!recipient) return { error: "Choose another account to share with." };
 
-    tx.insert(documentShares)
+    await tx
+      .insert(documentShares)
       .values({ documentId, recipientId, createdAt: Date.now() })
       .onConflictDoNothing()
       .run();
@@ -133,7 +133,7 @@ export function grantDocumentAccess(
   });
 }
 
-export function createDocument(
+export async function createDocument(
   db: Database,
   ownerId: string,
   initial = {
@@ -143,7 +143,8 @@ export function createDocument(
 ) {
   const now = Date.now();
   const id = randomUUID();
-  db.insert(documents)
+  await db
+    .insert(documents)
     .values({
       id,
       ownerId,
@@ -155,13 +156,13 @@ export function createDocument(
   return id;
 }
 
-export function saveDocument(
+export async function saveDocument(
   db: Database,
   id: string,
   ownerId: string,
   rawTitle: unknown,
   serialized: unknown,
-): { title: string } | { error: string } {
+): Promise<{ title: string } | { error: string }> {
   const title = typeof rawTitle === "string" ? rawTitle.trim() : "";
   if (!title || title.length > maxTitleLength) {
     return {
@@ -194,11 +195,11 @@ export function saveDocument(
   }
 
   const updatedAt = Date.now();
-  const result = db
+  const result = await db
     .update(documents)
     .set({ title, contentJson, updatedAt })
     .where(ownedDocument(id, ownerId))
     .run();
-  if (result.changes === 0) return { error: "Document not found." };
+  if (result.rowsAffected === 0) return { error: "Document not found." };
   return { title };
 }

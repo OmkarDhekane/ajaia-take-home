@@ -15,7 +15,7 @@ export async function currentUser() {
   if (!token) return null;
 
   return (
-    getDatabase()
+    (await getDatabase()
       .select({ id: users.id, displayName: users.displayName })
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
@@ -25,7 +25,7 @@ export async function currentUser() {
           gt(sessions.expiresAt, Date.now()),
         ),
       )
-      .get() ?? null
+      .get()) ?? null
   );
 }
 
@@ -39,7 +39,7 @@ export async function endSession() {
   const jar = await cookies();
   const token = jar.get(cookieName)?.value;
   if (token) {
-    getDatabase()
+    await getDatabase()
       .delete(sessions)
       .where(eq(sessions.tokenHash, tokenHash(token)))
       .run();
@@ -50,7 +50,7 @@ export async function endSession() {
 export async function startSession(userId: string) {
   await endSession();
   const token = randomBytes(32).toString("base64url");
-  getDatabase()
+  await getDatabase()
     .insert(sessions)
     .values({
       tokenHash: tokenHash(token),

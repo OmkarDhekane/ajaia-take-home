@@ -7,6 +7,7 @@ OpenAI Codex helped turn the assessment plan into the Next.js project, Tiptap ed
 - An early browser-only storage proposal was dropped in favor of server-side SQLite and seeded sign-in to support durable ownership and access checks.
 - A browser test exposed a save failure when several formatting controls were combined. The editor was changed to send serialized JSON through the Server Action, and the persistence test was expanded to cover combined formatting.
 - The original document size ceiling was raised after checking that a file near the 1 MiB import limit also needed to be editable and savable. The request limit was adjusted to allow for multipart and JSON encoding.
+- The first Render deploy failed because the app could not create a SQLite directory without a persistent disk. Claude Code moved storage to libSQL/Turso, converted data access to async queries, and changed the tests to use temporary libSQL files, because libSQL opens a new connection after each transaction and an in-memory database would be lost.
 - The recipient's editor surface was given a reading-document accessibility role after the preview exposed Tiptap's default textbox role.
 
 ## Verification

@@ -32,7 +32,7 @@ export async function signIn(_: FormState, form: FormData): Promise<FormState> {
     return invalid;
 
   try {
-    const account = getDatabase()
+    const account = await getDatabase()
       .select()
       .from(users)
       .where(eq(users.email, email.trim().toLowerCase()))
@@ -62,7 +62,7 @@ export async function createBlankDocument(): Promise<FormState> {
 
   let id: string;
   try {
-    id = createDocument(getDatabase(), user.id);
+    id = await createDocument(getDatabase(), user.id);
   } catch (error) {
     console.error("Document creation failed", error);
     return { error: "Could not create the document. Please try again." };
@@ -101,7 +101,13 @@ export async function saveDocumentDraft(
         error: "Your session expired. Sign in in another tab and retry.",
       };
     if (typeof id !== "string") return { error: "Document not found." };
-    const result = saveDocument(getDatabase(), id, user.id, title, content);
+    const result = await saveDocument(
+      getDatabase(),
+      id,
+      user.id,
+      title,
+      content,
+    );
     if ("title" in result) revalidatePath("/");
     return result;
   } catch (error) {
@@ -126,7 +132,12 @@ export async function shareDocument(
       return { error: "Choose an account to share with." };
     }
 
-    const result = grantDocumentAccess(getDatabase(), id, user.id, recipientId);
+    const result = await grantDocumentAccess(
+      getDatabase(),
+      id,
+      user.id,
+      recipientId,
+    );
     if ("success" in result) revalidatePath(`/documents/${id}`);
     return result;
   } catch (error) {

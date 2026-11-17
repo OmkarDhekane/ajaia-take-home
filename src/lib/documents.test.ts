@@ -1,6 +1,9 @@
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase } from "./db";
+import { type Database, openDatabase } from "./db";
 import { users } from "./db/schema";
 import {
   createDocument,
@@ -15,12 +18,17 @@ import { emptyDocument } from "./editor-schema";
 import { importTextDocument } from "./text-import";
 import { maxUploadBytes } from "./upload-limits";
 
-let db: ReturnType<typeof openDatabase>;
+let db: Database;
+let directory: string;
 
-beforeEach(() => {
-  db = openDatabase(":memory:");
-  migrate(db, { migrationsFolder: "./drizzle" });
-  db.insert(users)
+// libSQL opens a new connection after each transaction, so an in-memory
+// database would be lost; use a throwaway file per test instead.
+beforeEach(async () => {
+  directory = mkdtempSync(join(tmpdir(), "ajaia-test-"));
+  db = openDatabase(`file:${join(directory, "test.sqlite")}`);
+  await migrate(db, { migrationsFolder: "./drizzle" });
+  await db
+    .insert(users)
     .values([
       {
         id: "alex",
@@ -38,12 +46,19 @@ beforeEach(() => {
     .run();
 });
 
-afterEach(() => db.$client.close());
+afterEach(() => {
+  db.$client.close();
+  try {
+    rmSync(directory, { recursive: true, force: true });
+  } catch {
+    // Windows may still hold a lock from libSQL's transaction connections.
+  }
+});
 
 describe("document persistence", () => {
-  it("creates a document and reopens its saved title and rich text", () => {
-    const id = createDocument(db, "alex");
-    expect(findDocument(db, id, "alex")).toMatchObject({
+  it("creates a document and reopens its saved title and rich text", async () => {
+    const id = await createDocument(db, "alex");
+    expect(await findDocument(db, id, "alex")).toMatchObject({
       title: "Untitled document",
       contentJson: JSON.stringify(emptyDocument),
     });
@@ -90,36 +105,52 @@ describe("document persistence", () => {
     };
 
     expect(
-      saveDocument(db, id, "alex", "  Project notes ", JSON.stringify(body)),
+      await saveDocument(
+        db,
+        id,
+        "alex",
+        "  Project notes ",
+        JSON.stringify(body),
+      ),
     ).toEqual({
       title: "Project notes",
     });
-    expect(listDocuments(db, "alex")).toMatchObject([
+    expect(await listDocuments(db, "alex")).toMatchObject([
       { id, title: "Project notes" },
     ]);
-    expect(JSON.parse(findDocument(db, id, "alex")!.contentJson)).toEqual(body);
+    expect(
+      JSON.parse((await findDocument(db, id, "alex"))!.contentJson),
+    ).toEqual(body);
   });
 
-  it("keeps someone else's document out of reads, lists, and writes", () => {
-    const id = createDocument(db, "alex");
+  it("keeps someone else's document out of reads, lists, and writes", async () => {
+    const id = await createDocument(db, "alex");
 
-    expect(listDocuments(db, "sam")).toEqual([]);
-    expect(findDocument(db, id, "sam")).toBeUndefined();
+    expect(await listDocuments(db, "sam")).toEqual([]);
+    expect(await findDocument(db, id, "sam")).toBeUndefined();
     expect(
-      saveDocument(db, id, "sam", "Changed", JSON.stringify(emptyDocument)),
+      await saveDocument(
+        db,
+        id,
+        "sam",
+        "Changed",
+        JSON.stringify(emptyDocument),
+      ),
     ).toEqual({
       error: "Document not found.",
     });
-    expect(findDocument(db, id, "alex")?.title).toBe("Untitled document");
+    expect((await findDocument(db, id, "alex"))?.title).toBe(
+      "Untitled document",
+    );
   });
 
-  it("leaves the last save intact after invalid title or body submissions", () => {
-    const id = createDocument(db, "alex");
+  it("leaves the last save intact after invalid title or body submissions", async () => {
+    const id = await createDocument(db, "alex");
     expect(
-      saveDocument(db, id, "alex", "   ", JSON.stringify(emptyDocument)),
+      await saveDocument(db, id, "alex", "   ", JSON.stringify(emptyDocument)),
     ).toHaveProperty("error");
     expect(
-      saveDocument(
+      await saveDocument(
         db,
         id,
         "alex",
@@ -132,7 +163,9 @@ describe("document persistence", () => {
         }),
       ),
     ).toHaveProperty("error");
-    expect(findDocument(db, id, "alex")?.title).toBe("Untitled document");
+    expect((await findDocument(db, id, "alex"))?.title).toBe(
+      "Untitled document",
+    );
   });
 });
 
@@ -146,12 +179,12 @@ describe("text file import", () => {
     expect(result).toHaveProperty("id");
     if (!("id" in result)) throw new Error(result.error);
 
-    const document = findDocument(db, result.id, "alex")!;
+    const document = (await findDocument(db, result.id, "alex"))!;
     expect(document).toMatchObject({
       ownerId: "alex",
       title: "Quarterly notes",
     });
-    expect(findDocument(db, result.id, "sam")).toBeUndefined();
+    expect(await findDocument(db, result.id, "sam")).toBeUndefined();
     expect(JSON.parse(document.contentJson)).toEqual({
       type: "doc",
       content: [
@@ -166,7 +199,13 @@ describe("text file import", () => {
       ],
     });
     expect(
-      saveDocument(db, result.id, "alex", "Renamed", document.contentJson),
+      await saveDocument(
+        db,
+        result.id,
+        "alex",
+        "Renamed",
+        document.contentJson,
+      ),
     ).toEqual({ title: "Renamed" });
   });
 
@@ -174,10 +213,10 @@ describe("text file import", () => {
     const file = new File(["a".repeat(maxUploadBytes)], "at-limit.txt");
     const result = await importTextDocument(db, "alex", file);
     if (!("id" in result)) throw new Error(result.error);
-    const document = findDocument(db, result.id, "alex")!;
+    const document = (await findDocument(db, result.id, "alex"))!;
 
     expect(
-      saveDocument(
+      await saveDocument(
         db,
         result.id,
         "alex",
@@ -217,13 +256,14 @@ describe("text file import", () => {
     ],
   ])("rejects %s without creating a document", async (_, file, error) => {
     expect(await importTextDocument(db, "alex", file)).toEqual({ error });
-    expect(listDocuments(db, "alex")).toEqual([]);
+    expect(await listDocuments(db, "alex")).toEqual([]);
   });
 });
 
 describe("view-only sharing", () => {
-  it("makes the saved document visible to the selected account only", () => {
-    db.insert(users)
+  it("makes the saved document visible to the selected account only", async () => {
+    await db
+      .insert(users)
       .values({
         id: "another-user",
         displayName: "Another User",
@@ -231,29 +271,29 @@ describe("view-only sharing", () => {
         passwordHash: "unused",
       })
       .run();
-    const id = createDocument(db, "alex");
-    expect(findDocument(db, id, "sam")).toBeUndefined();
-    expect(listSharedDocuments(db, "sam")).toEqual([]);
-    expect(listSharingPeople(db, id, "sam")).toEqual([]);
+    const id = await createDocument(db, "alex");
+    expect(await findDocument(db, id, "sam")).toBeUndefined();
+    expect(await listSharedDocuments(db, "sam")).toEqual([]);
+    expect(await listSharingPeople(db, id, "sam")).toEqual([]);
 
-    expect(grantDocumentAccess(db, id, "alex", "sam")).toEqual({
+    expect(await grantDocumentAccess(db, id, "alex", "sam")).toEqual({
       success: true,
     });
-    expect(grantDocumentAccess(db, id, "alex", "sam")).toEqual({
+    expect(await grantDocumentAccess(db, id, "alex", "sam")).toEqual({
       success: true,
     });
-    expect(listDocuments(db, "sam")).toEqual([]);
-    expect(listSharedDocuments(db, "sam")).toMatchObject([
+    expect(await listDocuments(db, "sam")).toEqual([]);
+    expect(await listSharedDocuments(db, "sam")).toMatchObject([
       { id, ownerName: "Alex Chen" },
     ]);
-    expect(listSharedDocuments(db, "alex")).toEqual([]);
-    expect(listSharingPeople(db, id, "alex")).toMatchObject([
+    expect(await listSharedDocuments(db, "alex")).toEqual([]);
+    expect(await listSharingPeople(db, id, "alex")).toMatchObject([
       { id: "another-user", hasAccess: false },
       { id: "sam", hasAccess: true },
     ]);
-    expect(findDocument(db, id, "another-user")).toBeUndefined();
-    expect(listSharedDocuments(db, "another-user")).toEqual([]);
-    expect(listSharingPeople(db, id, "sam")).toEqual([]);
+    expect(await findDocument(db, id, "another-user")).toBeUndefined();
+    expect(await listSharedDocuments(db, "another-user")).toEqual([]);
+    expect(await listSharingPeople(db, id, "sam")).toEqual([]);
 
     const contentJson = JSON.stringify({
       type: "doc",
@@ -267,20 +307,22 @@ describe("view-only sharing", () => {
         },
       ],
     });
-    expect(saveDocument(db, id, "alex", "Shared notes", contentJson)).toEqual({
+    expect(
+      await saveDocument(db, id, "alex", "Shared notes", contentJson),
+    ).toEqual({
       title: "Shared notes",
     });
-    const savedDocument = findDocument(db, id, "alex")!;
+    const savedDocument = (await findDocument(db, id, "alex"))!;
     expect(JSON.parse(savedDocument.contentJson)).toEqual(
       JSON.parse(contentJson),
     );
-    expect(findDocument(db, id, "sam")).toMatchObject({
+    expect(await findDocument(db, id, "sam")).toMatchObject({
       title: "Shared notes",
       contentJson: savedDocument.contentJson,
       ownerName: "Alex Chen",
     });
     expect(
-      saveDocument(
+      await saveDocument(
         db,
         id,
         "sam",
@@ -290,21 +332,21 @@ describe("view-only sharing", () => {
     ).toEqual({
       error: "Document not found.",
     });
-    expect(grantDocumentAccess(db, id, "sam", "another-user")).toEqual({
+    expect(await grantDocumentAccess(db, id, "sam", "another-user")).toEqual({
       error: "Document not found.",
     });
-    expect(findDocument(db, id, "alex")).toEqual(savedDocument);
-    expect(findDocument(db, id, "another-user")).toBeUndefined();
+    expect(await findDocument(db, id, "alex")).toEqual(savedDocument);
+    expect(await findDocument(db, id, "another-user")).toBeUndefined();
   });
 
-  it("rejects self-shares and unknown recipients", () => {
-    const id = createDocument(db, "alex");
+  it("rejects self-shares and unknown recipients", async () => {
+    const id = await createDocument(db, "alex");
     for (const recipient of ["alex", "missing"]) {
-      expect(grantDocumentAccess(db, id, "alex", recipient)).toEqual({
+      expect(await grantDocumentAccess(db, id, "alex", recipient)).toEqual({
         error: "Choose another account to share with.",
       });
     }
-    expect(listSharingPeople(db, id, "alex")).toMatchObject([
+    expect(await listSharingPeople(db, id, "alex")).toMatchObject([
       { id: "sam", hasAccess: false },
     ]);
   });

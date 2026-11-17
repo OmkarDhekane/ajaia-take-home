@@ -56,5 +56,5 @@ export async function importTextDocument(
     return { error: documentSizeError };
   }
 
-  return { id: createDocument(db, ownerId, { title, contentJson }) };
+  return { id: await createDocument(db, ownerId, { title, contentJson }) };
 }

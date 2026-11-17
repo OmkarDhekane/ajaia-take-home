@@ -13,7 +13,7 @@ export default async function DocumentPage({
 }) {
   const [user, { id }] = await Promise.all([requireUser(), params]);
   const db = getDatabase();
-  const document = findDocument(db, id, user.id);
+  const document = await findDocument(db, id, user.id);
   if (!document) notFound();
 
   if (document.ownerId !== user.id) {
@@ -36,13 +36,14 @@ export default async function DocumentPage({
     );
   }
 
+  const sharingPeople = await listSharingPeople(db, id, user.id);
   return (
     <DocumentEditor
       key={id}
       id={id}
       initialTitle={document.title}
       initialContent={document.contentJson}
-      sharingPeople={listSharingPeople(db, id, user.id)}
+      sharingPeople={sharingPeople}
     />
   );
 }

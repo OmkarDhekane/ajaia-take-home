@@ -24,9 +24,23 @@ On macOS or Linux, use `cp .env.example .env` for the copy step. If you already 
 
 ## Storage and deployment
 
-SQLite stores accounts, sessions, documents, and sharing grants. `DATABASE_PATH` defaults to `./data/ajaia.sqlite`. Keep the database directory between runs.
+A libSQL database stores accounts, sessions, documents, and sharing grants. Drizzle connects with `@libsql/client`, so the same code runs against a local SQLite file or a hosted [Turso](https://turso.tech) database. Turso's free tier is enough for review.
 
-The deployment plan is a single Node.js instance on HTTPS with a writable persistent volume. Point `DATABASE_PATH` at that volume, configure unique demo passwords, run migrations and seeding, then run `npm run build` and `npm start`. Keep secure session cookies enabled on the host. For a production-mode preview over local HTTP, use `SESSION_COOKIE_SECURE=false` in the local `.env`.
+| Variable                                  | Purpose                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| `TURSO_DATABASE_URL`                      | `libsql://<db>-<org>.turso.io` in production. Defaults to `file:./data/ajaia.sqlite`. |
+| `TURSO_AUTH_TOKEN`                        | Turso database token. Leave unset for a local `file:` URL.                            |
+| `DEMO_ALEX_PASSWORD`, `DEMO_SAM_PASSWORD` | Passwords applied to the seeded review accounts.                                      |
+
+### Deploy to Render with Turso
+
+1. Create a Turso database and token, either in the Turso dashboard or with the CLI: `turso db create ajaia-docs`, `turso db show ajaia-docs --url`, and `turso db tokens create ajaia-docs`.
+2. Create a Render **Web Service** from this repository. No persistent disk is needed.
+   - Build command: `npm ci && npm run build`
+   - Start command: `npm run db:migrate && npm run db:seed && npm start -- --hostname 0.0.0.0`
+3. Add the environment variables `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `DEMO_ALEX_PASSWORD`, and `DEMO_SAM_PASSWORD`.
+
+Migrations and seeding are idempotent, so they can run on every start. Keep secure session cookies enabled on the host. For a production-mode preview over local HTTP, use `SESSION_COOKIE_SECURE=false` in the local `.env`.
 
 The live reviewer URL is pending. This package supports local review.
 

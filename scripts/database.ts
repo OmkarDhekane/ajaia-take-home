@@ -1,4 +1,4 @@
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { migrate } from "drizzle-orm/libsql/migrator";
 import { getDatabase } from "../src/lib/db";
 import { users } from "../src/lib/db/schema";
 import { hashPassword } from "../src/lib/password";
@@ -6,7 +6,7 @@ import { hashPassword } from "../src/lib/password";
 async function main() {
   const command = process.argv[2];
   if (command === "migrate") {
-    migrate(getDatabase(), { migrationsFolder: "./drizzle" });
+    await migrate(getDatabase(), { migrationsFolder: "./drizzle" });
     console.log("Database migrated.");
     return;
   }
@@ -35,9 +35,10 @@ async function main() {
     },
   ];
   const db = getDatabase();
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (const account of accounts) {
-      tx.insert(users)
+      await tx
+        .insert(users)
         .values(account)
         .onConflictDoUpdate({
           target: users.id,

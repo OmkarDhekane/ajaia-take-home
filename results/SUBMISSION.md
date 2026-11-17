@@ -16,7 +16,7 @@ Seeded sign-in, document creation and editing, formatted saves and reopening, UT
 
 ## Pending for final submission
 
-- A working HTTPS reviewer URL with a persistent SQLite volume and hosted demo credentials.
+- A working HTTPS reviewer URL backed by a hosted Turso database, with hosted demo credentials.
 - A 3–5 minute walkthrough video and a text file linking to it.
 - The final Google Drive submission folder with the source and reviewer materials.
 
